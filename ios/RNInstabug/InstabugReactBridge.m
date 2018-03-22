@@ -11,7 +11,20 @@
 #import <os/log.h>
 #import <InstabugCore/IBGTypes.h>
 
-@implementation InstabugReactBridge
+@implementation InstabugReactBridge {
+    dispatch_semaphore_t semaphore;
+    int64_t timeout;
+}
+
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        semaphore = dispatch_semaphore_create(0);
+        // by default, we wait 5 seconds until the event completes
+        timeout = NSEC_PER_SEC * 5;
+    }
+    return self;
+}
 
 - (NSArray<NSString *> *)supportedEvents {
     return @[
@@ -94,6 +107,42 @@ RCT_EXPORT_METHOD(setPreSendingHandler:(RCTResponseSenderBlock)callBack) {
     } else {
         [Instabug setPreSendingHandler:nil];
     }
+}
+
+RCT_EXPORT_METHOD(setBlockingPreSendingHandler:(BOOL)callBack) {
+    if (!callBack) {
+        [Instabug setPreSendingHandler:nil];
+        return;
+    }
+    __weak __typeof(self) weakSelf = self;
+    [Instabug setPreSendingHandler:^{
+        if (!weakSelf) {
+            return;
+        }
+        //
+        [weakSelf sendEventWithName:@"IBGpreSendingHandler" body:nil];
+        // Wait for finishBlockingPreSending called or timeout, so that we
+        // know the JavaScript thread has already did its job attaching
+        // log file and do all other necessary stuff for submitting the
+        // bug report.
+        dispatch_time_t time;
+        if (timeout == 0) {
+            time = DISPATCH_TIME_NOW;
+        } else if (timeout < 0) {
+            time = DISPATCH_TIME_FOREVER;
+        } else {
+            time = dispatch_time(DISPATCH_TIME_NOW, timeout);
+        }
+        dispatch_semaphore_wait(semaphore, time);
+    }];
+}
+
+RCT_EXPORT_METHOD(finishBlockingPreSending) {
+    dispatch_semaphore_signal(semaphore);
+}
+
+RCT_EXPORT_METHOD(setBlockingPreSendingTimeout:(int64_t)newTimeout) {
+    timeout = newTimeout;
 }
 
 RCT_EXPORT_METHOD(setPreInvocationHandler:(RCTResponseSenderBlock)callBack) {

@@ -123,6 +123,32 @@ module.exports = {
 
     },
 
+    setBlockingPreSendingHandler: function (preSendingHandler) {
+        if (preSendingHandler === null) {
+            Instabug.setBlockingPreSendingHandler(false);
+            return
+        }
+        if (Platform.OS === 'ios') {
+            Instabug.addListener('IBGpreSendingHandler');
+            NativeAppEventEmitter.addListener(
+                'IBGpreSendingHandler',
+               () => {
+                preSendingHandler()
+                    .catch(() => {
+                        Instabug.finishBlockingPreSending()
+                    })
+                    .then(() => {
+                        Instabug.finishBlockingPreSending()
+                    })
+               } 
+            );
+            Instabug.setBlockingPreSendingHandler(true);
+        // XXX: not supported here, raise error?
+        } else {
+            return
+        }
+    },
+
     /**
      * Shows survey with a specific token.
      * Does nothing if there are no available surveys with that specific token.
